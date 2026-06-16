@@ -31,10 +31,10 @@ def join_ints(values: Iterable[int]) -> str:
     return "-".join(str(v) for v in values if not is_grease(v))
 
 
-def fan_fingerprint(protocol: str, role: str, features: str) -> Tuple[str, str]:
+def fan_fingerprint(protocol: str, role: str, mode: str, features: str) -> Tuple[str, str]:
     digest = hashlib.sha256(features.encode("utf-8")).hexdigest()
     encoded = base64.urlsafe_b64encode(features.encode("utf-8")).decode("ascii").rstrip("=")
-    return f"fan1:{protocol}:{role}:{encoded}:sha256:{digest}", digest
+    return f"fan1:{protocol}:{role}:{mode}:{encoded}:sha256:{digest}", digest
 
 
 @dataclass(frozen=True)
@@ -261,8 +261,17 @@ def parse_ssh(payload: bytes) -> Optional[Tuple[str, str]]:
 
 
 def emit(protocol: str, role: str, features: str, segment: TcpSegment) -> Dict[str, object]:
-    fp, digest = fan_fingerprint(protocol, role, features)
-    return {"protocol": protocol, "role": role, "fingerprint": fp, "features": features, "sha256": digest, "flow": segment.flow, "frame": segment.index}
+    fp, digest = fan_fingerprint(protocol, role, "passive", features)
+    return {
+        "mode": "passive",
+        "protocol": protocol,
+        "role": role,
+        "fingerprint": fp,
+        "features": features,
+        "sha256": digest,
+        "flow": segment.flow,
+        "frame": segment.index,
+    }
 
 
 def extract(path: Path) -> Iterator[Dict[str, object]]:
