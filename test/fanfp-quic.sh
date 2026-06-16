@@ -24,8 +24,8 @@ check '"role": "server"' || failures=$((failures + 1))
 check '"features": "quic|client|v=1|tls_v=771|c=4865-4866-4867|' || failures=$((failures + 1))
 check '|alpn=h3|' || failures=$((failures + 1))
 check '"features": "quic|server|v=1|tls_v=771|c=4865|e=51-43|sv=772"' || failures=$((failures + 1))
-check '"fingerprint": "fan1:quic:client:' || failures=$((failures + 1))
-check '"fingerprint": "fan1:quic:server:' || failures=$((failures + 1))
+check '"fingerprint": "fan1:quic:client:passive:' || failures=$((failures + 1))
+check '"fingerprint": "fan1:quic:server:passive:' || failures=$((failures + 1))
 
 if [ "$failures" -ne 0 ]; then
   printf '%s\n' "$output"
