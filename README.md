@@ -30,6 +30,35 @@ fan1:<protocol>:<role>:<base64url-normalized-features>:sha256:<hex-digest>
 The JSON output also includes the plain `features` field so analysts can inspect
 and pivot on individual parts without decoding the fingerprint.
 
+## Role model
+
+The `role` component describes which side of the protocol behavior is being
+fingerprinted. Keeping the role in the primary fingerprint string prevents
+collisions between values that may have similar feature lists but very different
+correlation meaning.
+
+* `client` is used when the observed handshake message is an initiator proposal.
+  For TLS this means the ClientHello: supported protocol versions, cipher suite
+  order, extension order, supported groups, signature algorithms, and ALPN
+  values. A `client` fingerprint answers: "what implementation or tool appears
+  to be initiating connections?"
+* `server` is used when the observed handshake message is a responder selection.
+  For TLS this means the ServerHello: selected protocol version, selected cipher
+  suite, and server extensions. A `server` fingerprint answers: "what service
+  behavior appears to be answering connections?"
+* `peer` is used when the protocol exposes comparable active-handshake
+  characteristics from both sides, or when the extractor cannot reliably assign
+  a stricter initiator/responder label from a single payload. SSH uses `peer`
+  because both endpoints send an identification string and a `SSH_MSG_KEXINIT`
+  packet with the same family of proposal lists. A `peer` fingerprint answers:
+  "what SSH implementation behavior did this endpoint advertise?"
+
+In practical correlation, treat `client`, `server`, and `peer` as different
+attribute types even when the same protocol is involved. For example, a TLS
+client fingerprint should be correlated with other TLS client observations, not
+with TLS server observations, because the canonical feature strings represent
+different handshake semantics.
+
 ### TLS client fingerprints
 
 TLS client fingerprints are built from ClientHello fields:
