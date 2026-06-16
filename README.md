@@ -5,7 +5,7 @@
 
 
 `fanything` is an experimental, patent-unencumbered fingerprinting format and
-pcap extractor for correlating SSH and TLS handshakes.
+pcap extractor for correlating SSH, TLS, and QUIC handshakes.
 
 The repository defines a small algorithm named **FAN/1** (Flexible Active
 Network fingerprint, version 1). FAN/1 is intentionally simple: each
@@ -22,8 +22,8 @@ fan1:<protocol>:<role>:<mode>:<base64url-normalized-features>:sha256:<hex-digest
 ```
 
 * `fan1` identifies the algorithm version.
-* `<protocol>` is currently `tls` or `ssh`, but the namespace can be extended to
-  other services.
+* `<protocol>` is currently `tls`, `ssh`, or `quic`, but the namespace can be
+  extended to other services.
 * `<role>` identifies handshake direction, for example `client`, `server`, or
   `peer`.
 * `<mode>` is `active` or `passive`.
@@ -44,9 +44,9 @@ FAN/1 fingerprints can be collected in two modes:
   `fanfp.py` is passive and emits `"mode":"passive"` in each JSON object and
   in each FAN/1 fingerprint prefix.
 * `active` means the collector creates its own network interaction with the
-  endpoint. The NSE script `fanything-tls.nse` is active: it connects to the target,
-  sends SSH or TLS probes, emits `mode: active` in Nmap output, and embeds
-  `active` in each FAN/1 fingerprint prefix.
+  endpoint. The NSE scripts `fanything-tls.nse` and `fanything-ssh.nse` are
+  active: they connect to the target, send protocol probes, emit `mode: active`
+  in Nmap output, and embed `active` in each FAN/1 fingerprint prefix.
 
 The collection mode is part of the FAN/1 prefix and output metadata, but not the
 normalized feature string. Store `mode` as metadata too, so active probes and
@@ -122,12 +122,39 @@ Normalization rules:
 * Comma-separated algorithm lists preserve wire order.
 * Missing fields are represented as empty strings.
 
+### QUIC fingerprints
+
+QUIC fingerprints are built from QUIC Initial packets. When Python
+`cryptography` is available, `fanfp.py` derives QUIC Initial secrets for QUIC v1
+and draft-29, decrypts CRYPTO frames, reassembles the TLS handshake stream, and
+emits TLS-derived client or server features under the `quic` protocol:
+
+```text
+quic|client|v=<quic_version>|tls_v=<legacy_tls_version>|c=<cipher_suites>|e=<extensions>|g=<supported_groups>|p=<ec_point_formats>|sv=<supported_versions>|alpn=<alpn_protocols>|sig=<signature_algorithms>
+quic|server|v=<quic_version>|tls_v=<legacy_tls_version>|c=<selected_cipher>|e=<extensions>|sv=<selected_supported_version>
+```
+
+If Initial decryption is unavailable, the extractor falls back to QUIC long
+header metadata:
+
+```text
+quic|peer|v=<quic_version>|type=initial|dcid_len=<destination_connection_id_length>|scid_len=<source_connection_id_length>|token_len=<token_length>|len=<packet_length>
+```
+
+Normalization rules:
+
+* QUIC and TLS version values are decimal integers.
+* TLS list fields follow the same normalization rules as TCP TLS fingerprints.
+* The mode is carried outside the canonical feature string, in the FAN/1 prefix
+  and metadata.
+
 ## Usage
 
 Passive pcap extraction:
 
 ```bash
 python3 fanfp.py capture.pcap
+python3 fanfp.py test/chromium-perdu.com-quick.pcap
 ```
 
 The command emits one JSON object per fingerprint:
@@ -140,9 +167,10 @@ Active service probing with Nmap NSE:
 
 ```bash
 nmap -Pn -p443 --script ./fanything-tls.nse 192.0.2.20
+nmap -Pn -p22 --script ./fanything-ssh.nse 192.0.2.20
 ```
 
-The NSE script probes TLS in this order: `TLSv1.3`, `TLSv1.2`, `TLSv1.1`,
+The TLS NSE script probes TLS in this order: `TLSv1.3`, `TLSv1.2`, `TLSv1.1`,
 `TLSv1.0`, `SSLv3`, then `SSLv2`, and stops at the first full server
 fingerprint. A single protocol version can be forced for testing:
 
@@ -154,10 +182,17 @@ Cipher tables are version-oriented in the script. See [active_scan.md](active_sc
 for cipher-suite rationale and the Firefox/NSS source references used for TLS
 1.3, TLS 1.2, and historical SSLv3-era ordering.
 
+The SSH NSE script sends an SSH identification string, reads the server
+identification string and `SSH_MSG_KEXINIT` when available, then emits the same
+`ssh|peer|...` feature shape as `fanfp.py`. If a server only provides a banner,
+the algorithm-list fields are emitted empty, matching passive extraction.
+
 Local NSE testing against OpenSSL servers:
 
 ```bash
 test/nse-openssl.sh
+test/nse-ssh.py
+test/fanfp-quic.sh
 ```
 
 The test harness creates a temporary certificate, starts `openssl s_server` for
@@ -165,7 +200,9 @@ The test harness creates a temporary certificate, starts `openssl s_server` for
 each server, verifies default scan stops at the first successful TLS version,
 and prints the observed `features` and `fingerprint` values. `SSLv3` and
 `SSLv2` are reported as skipped when the local OpenSSL build no longer provides
-those server modes.
+those server modes. The SSH harness starts a deterministic local SSH test
+server and validates `fanything-ssh.nse`. The QUIC harness validates passive
+QUIC Initial extraction against the Chromium pcap fixture.
 
 ## MISP correlation hints
 
@@ -181,5 +218,5 @@ Recommended storage approaches:
   back to packets.
 
 Because FAN/1 embeds the protocol, role, and collection mode in the fingerprint,
-mixed SSH, TLS, and future service fingerprints can share the same attribute
-namespace without losing type information.
+mixed SSH, TLS, QUIC, and future service fingerprints can share the same
+attribute namespace without losing type information.
